@@ -65,7 +65,7 @@ _Duplexing_ a sequence of bytes into the state uses the standard construction wi
         return out
 ```
 
-This building block is useful for encryption (among other things).  The opposite construction is _unduplexing_:
+This building block is useful for encryption (among other things).  The opposite construction, mostly for decryption and state erasure, is _unduplexing_:
 ```
 # ...
             else: self.st[self.off] = byte
@@ -73,7 +73,12 @@ This building block is useful for encryption (among other things).  The opposite
 It is important to note that these operations **do not call F afterward**, even if they end on the rate _R_.
 
 # Control words
-Each operation against the sponge uses a control word and a forward or reverse duplex.  Control words describe what the operation means to the protocol, and what will be done with the output.  The meaning of the control word can vary across protocols.  In principle, control words may be free-form, so long as they are suffix-free (i.e. no control word is the suffix of another control word).  For STROBE lite as implemented, they are always exactly 4 bytes long.  They consist of a tag byte, a flag byte, and two length bytes:
+Each operation against the sponge uses a control word and a forward or reverse duplex.  Control words describe what the operation means to the protocol, and what will be done with the output.  The meaning of the control word can vary across protocols.  Call a control word _possible_ if, at some stage in the protocol, it could be used given the protocol initialization parameters and the previously exchanged control words and messages.  These are the requirements on control words in principle:
+* No possible control word can be the suffix of another possible control word.  This ensures parseability.
+* Each possible control word must uniquely determine who sent the message (if anyone), and whether its data should be duplexed or unduplexed.
+* The control words are used to describe the meaning of the message _to the protocol_ as well as to the sponge.  Therefore, they should capture as accurately as possible what any plaintext being hashed means to the protocol, and what will be done with the output of the dulpex construction (including ignoring it).
+
+For STROBE lite as implemented, control words are always exactly 4 bytes long.  They consist of a tag byte, a flag byte, and two length bytes:
 
 ```
 # ...
@@ -84,11 +89,11 @@ Each operation against the sponge uses a control word and a forward or reverse d
         return [tag,flags,length%256,length>>8]
 ```
 
-**TODO**: Possibly this should be in the opposite order, because that's better for suffix-freedom.
+**TODO**: Possibly this should be in the opposite order, because that's better for suffix-freedom if someone wants to mix and match.
 
-Note well that the length is not necessary for security.  It is included for two reasons:
+Note well that the length here is not necessary for security, so that it could be omitted or set to a fixed value by a protocol which uses some sort of streaming crypto.  It is included above for two reasons:
 * Sending the control word for all messages which will be transmitted (i.e. not keys, session IDs, sig challenges, etc) makes a half-decent framing protocol.
-* This makes it slightly harder to screw up by using a MAC or something of a different length.
+* This makes it slightly harder to screw up by using a MAC or something of a different length.  (It better describes the meaning of the message and what the output will be used for.)
 
 Control words are applied using the unduplex operation, followed by padding with the byte 3 and applying the F function.  **TODO**: Why 3 and not 2?  No good reason.  Maybe make it 2.
 
