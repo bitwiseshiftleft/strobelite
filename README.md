@@ -86,7 +86,13 @@ Each operation against the sponge uses a control word and a forward or reverse d
 * Each possible control word should uniquely determine who sent the message (if anyone).  It must determine whether its data is duplexed or unduplexed.
 * The control words are used to describe the meaning of the message _to the protocol_ as well as to the sponge.  Therefore, they should capture as accurately as possible what any plaintext being hashed means to the protocol, and what will be done with the output of the dulpex construction (including ignoring it).
 
+**TODO** There are several TODO items for suffix freedom:
+
 **TODO** Should "possible" code words take into account the previous plaintext message, in case there's a TAG_HELLO version header?  There's a conflict between this and the statement of suffix-freedom.
+
+**TODO** Should control words just always be length-limited to 255 bytes or something, and end with their length?
+
+**TODO** Should control words be put in backwards???
 
 For STROBE lite as implemented, control words are always exactly 4 bytes long.  They consist of a tag byte, a flag byte, and two length bytes:
 
