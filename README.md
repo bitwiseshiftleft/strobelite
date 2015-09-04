@@ -18,14 +18,18 @@ This acts as a hash function, just like Keccak.  Since the operation is broken u
 When used in a protocol, each participant shares a sponge object which is kept in the same state as the other party's sponge object.  Each party duplexes all the messages they send or receive into the sponge.  This includes a direction flag to indicate who sent the message.  Then either the message can be sent in plaintext, or the duplex construction's output can be used as ciphertext.  This makes all the operations sensitive to all the data which has been exchanged so far.  An adversary cannot gain information about the messages exchanged (other than their length, who sent them, and any headers or messages deliberately sent as plaintext) unless she can reproduce everything which has been fed into the sponge including shared secret keys.
 
 # Security
-STROBE lite provides approximately 128-bit provable security against classical adversaries in the random permutation or random function (i.e. random oracle) model.  The probability that an attacker can differentiate it from a random oracle should be bounded by approximately (_M_+_N_)^2 / 2^256, where _M_ is the number of F-queries the legitimate users make and _N_ is the number of F-queries the adversary makes.
+STROBE lite provides approximately 128-bit provable security against classical (non-quantum) adversaries in the random permutation or random function (i.e. random oracle) model.  The probability that an attacker can differentiate it from a random oracle should be bounded by approximately (_M_+_N_)^2 / 2^256, where _M_ is the number of F-queries the legitimate users make and _N_ is the number of F-queries the adversary makes.
 
-**TODO**: there is a simple variant which should provide 128-bit security for some operations in the standard model.  This is to xor in the capacity-bytes after applying the function.  Is it worth using?
+(This is slightly less than 2^256 because of padding words and so on, but it will be > 2^250 in the recommended protocols and > 2^245 everywhere I think; **TODO** bound more precisely.)
+
+**TODO** I'm not an expert in quantum adversaries, but I would guess that the ^2 should be replaced by ^3.
+
+**TODO**: there is a simple variant which should provide approximately 128-bit security for some operations in the standard model instead of the random permutation model.  This is to xor in the capacity-bytes after applying the function.  Is it worth using?
 
 STROBE lite is not nonce-misuse resistant.
 
 # The duplex construction
-STROBE lite is based on a duplexing sponge construction.  Each instance of STROBE lite has a rate _r_ := 8_R_+2 bits and a capacity _c_ = 8_C_-2 bits.  That is, it works on byte-aligned or larger data, with 2 bits of padding.  There is a natural extension to bits, which we do not discuss here.  It also has a function F from _R_+_C_ bytes to _R_+_C_ bytes; F may be a permutation.  In the suggested implementation, _R_ = 68, _C_ = 32, and F is Keccak-F[800].
+STROBE lite is based on a duplexing sponge construction.  Each instance of STROBE lite has a rate _r_ := 8_R_+8 bits and a capacity _c_ = 8_C_-8 bits.  That is, it works on byte-aligned or larger data, with one byte of padding.  (In the default implementation, the 8 bits of padding can take on only 3 values --- 0, 1 and `0xc4` --- and so effectively decrease capacity by less than 2 bits).  There is a natural extension to bits, which we do not discuss here.  It also has a function F from _R_+_C_ bytes to _R_+_C_ bytes; F may be a permutation.  In the suggested implementation, _R_ = 68, _C_ = 32, and F is Keccak-F[800].
 
 The state of a STROBE lite duplex object is an _R_+_C_-byte array `st`, and an offset `off` in that array which is between 0 bits and _R_ bytes, inclusive.  The state is initialized in a way that makes it distinct from SHA3, SHAKE, Keyak, different STROBE lite instances, and and STROBE lite with different rates.
 
@@ -39,7 +43,7 @@ class StrobeLite(object):
         self.off = 0
         
         # distinguish the rate
-        self.st[R] ^= 4
+        self.st[R+1] ^= 1
         
         # distinguish the version.  For the standard-model version, use "s" instead of "v"
         aString = "STROBE lite " + version
@@ -47,11 +51,6 @@ class StrobeLite(object):
         
         # distinguish the instance
         self.duplex(protoDescription)
-
-        # Run the function.  This is to support variable-length codewords in extensions.
-        self.st[self.off] ^= 2
-        self.st = F(self.st)
-        self.off = 0
 ```
 
 _Duplexing_ a sequence of bytes into the state uses the standard construction with a trailing 2 (i.e. 2'b01) on every block:
@@ -80,19 +79,10 @@ This building block is useful for encryption (among other things).  The opposite
 It is important to note that these operations **do not call F afterward**, even if they end on the rate _R_.
 
 # Control words
-Each operation against the sponge uses a control word and a forward or reverse duplex.  Control words describe what the operation means to the protocol, and what will be done with the output.  The meaning of the control word can vary across protocols.  Call a control word _possible_ if, at some stage in the protocol, it could be used given the protocol initialization parameters and the previously exchanged control words.  These are the requirements on control words in principle:
-* No possible control word can be the suffix of another possible control word.  This ensures parseability.
-* It must be easy to decide if some string is a possible code word.
-* Each possible control word should uniquely determine who sent the message (if anyone).  It must determine whether its data is duplexed or unduplexed.
-* The control words are used to describe the meaning of the message _to the protocol_ as well as to the sponge.  Therefore, they should capture as accurately as possible what any plaintext being hashed means to the protocol, and what will be done with the output of the dulpex construction (including ignoring it).
-
-**TODO** There are several TODO items for suffix freedom:
-
-**TODO** Should "possible" code words take into account the previous plaintext message, in case there's a TAG_HELLO version header?  There's a conflict between this and the statement of suffix-freedom.
-
-**TODO** Should control words just always be length-limited to 255 bytes or something, and end with their length?
-
-**TODO** Should control words be put in backwards???
+Each operation against the sponge uses a control word and a forward or reverse duplex.  Control words describe what the operation means to the protocol, and what will be done with the output.  The meaning of the control word can vary across protocols, but for each protocol, it must be clear given the protocol description, past control words and past "context-defining" messages:
+* The meaning of that transaction's data to the protocol.
+* Whether a given control word is duplex/absorb (encrypt/hash) or reverse-duplex (decrypt/MAC).
+* Whether a given control word defines a "context-defining message" as described by the above paragraph, and how that message affects the "context".  For example, if there is a HELLO message with protocol version, then the protocol must define which versions map to which control-word meanings later in the protocol.
 
 For STROBE lite as implemented, control words are always exactly 4 bytes long.  They consist of a tag byte, a flag byte, and two length bytes:
 
@@ -105,13 +95,11 @@ For STROBE lite as implemented, control words are always exactly 4 bytes long.  
         return [tag,flags,length%256,length>>8]
 ```
 
-**TODO**: Possibly the bytes should be in the other order, because that's better for suffix-freedom if someone wants to mix and match.
-
 **FIXME**: STROBE lite includes a direction indicator which goes in the flags, but it's not shown above.
 
-**TODO**: Should there be other flags included into the control word, like "output is not used" or something?
+**TODO**: Since there are only a few bits of flags, tags should be longer than one byte.
 
-**TODO**: Since there are only a few bits of flags, tags can be longer than one byte.
+**TODO**: Perhaps the flags should be eliminated? Think about what exactly this means in RPM.
 
 Note well that the length here is not necessary for security, so that it could be omitted or set to a fixed value by a protocol which uses some sort of streaming crypto.  It is included above for two reasons:
 * Sending the control word for all messages which will be transmitted (i.e. not keys, session IDs, sig challenges, etc) makes a half-decent framing protocol.
@@ -119,17 +107,16 @@ Note well that the length here is not necessary for security, so that it could b
 
 Tags will be written TAG_FOO, which means some protocol-specific constant byte.
 
-Control words are applied using the unduplex operation, followed by padding with the byte 3 (i.e. 2'b11) and applying the F function.
+Control words are applied using the unduplex operation; followed by padding with 6 bits of length and the 2-bit constant 0b11, i.e. length | 0xc0; followed by applying F.
 
 **TODO**: Why unduplex and not duplex?  It's so that you can forget more state, but maybe that's not worth a slightly weird construction.
-
-**TODO**: BLINKER xor's the control word into a fixed place in the _C_ region.  This probably leads to less performance, less code and a slightly weirder design.  Worth it?
 
 ```
 # ...
     def _useControlWord(self,cw):
+        assert(len(cw)<64)
         self._duplex(cw,forward=False) # and ignore output
-        self.st[self.off] ^= 3
+        self.st[self.off] ^= len(cw) | 0xc0
         self.st = self.F(self.st)
         self.off = 0
 ```
@@ -161,13 +148,11 @@ Some possible example transactions:
 The duplexing-sponge lemma shows that the state data used in each transaction is indifferentiable from a random oracle on all the past data xor'd into the sponge (or unduplexed, if it is clear which has happened).  This is a pretty good security guarantee if the history of transactions can be obtained from the history of data xor'd into the sponge.
 
 This is so because:
-* The last byte xor'd into a block is always 2 or 3.  If it's a 3, then this block and possibly the previous ones contain a code word.  The block ends just before the 2 or 3.
+* The last bits xor'd into a block are always 2'b01 or 6'b[length] followed by 2'b11.  In the latter case, then this block and possibly the previous ones contain a code word.  The block ends just before this construct.
 * Concatenating the 2-blocks followed by the 3-blocks gives the data followed by the next code word.
-* The protocol can be parsed in the order that the transactions occur.  First the following code word is parsed, and then the data.
-* The first 3-block is the first code word.
-* The code word was unduplexed.  It can be recovered from the queries (or as xordata^state), starting from the end of the block, until a possible code word is obtained.
-* The rest of the data is actually data.
-* Since the previous code word has already been parsed, it can be determined what that data means to the protocol and whether it was duplexed or unduplexed.
+* The length of each code word is given, allowing the data blocks to be parsed from the control word.
+* The code word was unduplexed.  It can be recovered from the queries (or as xordata^state).
+* In protocol order, the meaning of the code words can be determined.
 * When the permutation is called in a streaming fashion, it is clear what the previous control words were, but it is not clear whether the last few bytes of the call are data or the beginning a new control word.
 ** It's clear in the base STROBELITE because of the length field, but that isn't required in variants.
 ** This isn't a problem, because if the last few bytes are the beginning of a new control word, the output will not be returned from the transaction() routine.
