@@ -7,6 +7,10 @@ from Toy25519 import Toy25519
 from TestIo import *
 
 if 0:
+    """
+    This is for interacting with a C version I wrote, which doesn't
+    have the same EC code linked to it so it can't intertransact there.
+    """
     sock = SockIo.listen(4444,"Server")
     ctx = StrobeliteProtocol(sock,"toy python",am_client=False)
 
@@ -16,7 +20,7 @@ if 0:
 
 
     key = b"my key"
-    ctx.operate(FIXED_KEY,key)
+    ctx.transact(FIXED_KEY,key)
     
     while 1:
         x = ctx.recv_decrypt()
@@ -40,7 +44,7 @@ if 1:
 
     def clientThread(ctx):
         ctx.send(VERSION,[0,1])
-        ctx.operate(FIXED_KEY,key)
+        ctx.transact(FIXED_KEY,key)
         ctx.ecdhe(Toy25519,True)
         ctx.sign(Toy25519,sk)
         ctx.verify_sig(Toy25519,pk2)
@@ -52,7 +56,7 @@ if 1:
         if tuple((x for x in v)) != (0,1):
             ctx.io.close()
             return None
-        ctx.operate(FIXED_KEY,key)
+        ctx.transact(FIXED_KEY,key)
         ctx.ecdhe(Toy25519,False)
         ctx.verify_sig(Toy25519,pk)
         ctx.sign(Toy25519,sk2)

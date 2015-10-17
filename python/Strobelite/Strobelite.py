@@ -1,3 +1,13 @@
+"""
+An example implementation of STROBE lite.
+
+The key tree may be patented.  Also, it may be easy to violate other
+patents with this code, so be careful.
+
+Copyright (c) Mike Hamburg, Cryptography Research, 2015.
+I will need to contact legal to get a license for this; in the mean time
+it is for example purposes only.
+"""
 import Keccak
 from ControlWord import *
 import base64
@@ -38,10 +48,10 @@ class Strobelite(object):
     """
     STROBE lite protocol framework
     """
-    version = "v0.1"
+    version = "v0.2"
     EXCEEDED_RATE = 2
     
-    def __init__(self,proto,am_client=False,F=None,rate=None,raise_if_fail=True,copyFrom=None):
+    def __init__(self,proto,am_client=False,F=None,rate=None,raise_if_fail=True,steg=0,copyFrom=None):
         if copyFrom is not None:
             self.F = copyFrom.F
             self.rate = copyFrom.rate
@@ -51,6 +61,7 @@ class Strobelite(object):
             self.am_client = copyFrom.am_client
             self.st = bytearray(copyFrom.st)
             self.raise_if_fail = copyFrom.raise_if_fail
+            self.steg = copyFrom.steg
         
         else:
             if F is None: F = KeccakF(800)
@@ -63,6 +74,9 @@ class Strobelite(object):
             self.am_client = am_client
             self.init(proto)
             self.raise_if_fail = raise_if_fail
+            self.steg = steg
+        
+        if self.steg: raise StrobeliteError("Steg is TODO") # TODO
     
     def copy(self):
         return Strobelite(proto=self.proto,copyFrom=self)
@@ -84,7 +98,7 @@ class Strobelite(object):
         self.st[self.rate+1] = "\x01"
         
         # Distinguish the protocol
-        self.operate(INIT,proto)
+        self.transact(INIT,proto)
     
     def _runF(self,pad):
         """
@@ -94,22 +108,50 @@ class Strobelite(object):
         self.st = self.F(self.st)
         self.off = 0
     
-    def _duplex(self,op,data):
+    def _duplex(self,op,data,keytree=False):
         """
         Duplexing sponge construction.
         """
         out = []
-        for byte in bytearray(data):
-            if self.off == self.rate:
-                self._runF(Strobelite.EXCEEDED_RATE)
+        
+        if keytree:
+            """
+            The DPA-resistant key tree is a CRI design to mitigate differential
+            power analysis at a protocol level.  It's basically GGM, but I've
+            heard rumors that it's patented.
+            """
+            keytreebits = 2
+            mask = (1<<keytreebits)-1
+            pad = Strobelite.EXCEEDED_RATE<<keytreebits
             
-            if op in ("duplex","duplex_r"): out.append(self.st[self.off] ^ byte)
-            elif op in ("absorb","absorb_r"): out.append(byte)
+            assert op in ("absorb","absorb_r")
+            # Duplexing key tree is currently unsupported.
+            self._runF(Strobelite.EXCEEDED_RATE)
+            for byte in bytearray(data):
+                ob = 0
+                for off in xrange(0,8,keytreebits):
+                    b = ((byte>>off) & mask) | pad
+                    ob ^= ((b^self.st)[0]&mask) << off
+                    if op == "absorb_r":
+                        byte ^= self.st[0] & mask
+                    self.runF(b)
+                if op in ("absorb","absorb_r"):
+                    out += [byte]
+                else:
+                    out += [ob]
             
-            if op in ("duplex_r","absorb_r"): self.st[self.off] = byte
-            else: self.st[self.off] ^= byte
+        else:
+            for byte in bytearray(data):
+                if self.off == self.rate:
+                    self._runF(Strobelite.EXCEEDED_RATE)
             
-            self.off += 1
+                if op in ("duplex","duplex_r"): out.append(self.st[self.off] ^ byte)
+                elif op in ("absorb","absorb_r"): out.append(byte)
+            
+                if op in ("duplex_r","absorb_r"): self.st[self.off] = byte
+                else: self.st[self.off] ^= byte
+            
+                self.off += 1
             
         return bytearray(out)
 
@@ -125,7 +167,7 @@ class Strobelite(object):
             raise StrobeliteError(why)
         else: return None
         
-    def operate(self,cw,data=None,receive=False):
+    def transact(self,cw,data=None,receive=False):
         """
         Main operation.  Apply the control word cw, input the given data,
         and return the result.  If receive, then reverse the operation.
@@ -147,7 +189,7 @@ class Strobelite(object):
         self.noparse = cw.is_noparse()
             
         # reverse-absorb the control word
-        self._duplex("absorb_r",cwb)
+        self._duplex("absorb_r",cwb,"keytree" in cw.flags)
         
         # run F if necessary
         if pad: self._runF(pad)
@@ -157,11 +199,11 @@ class Strobelite(object):
         if receive:
             if op == "duplex": op = "duplex_r"
             elif op == "duplex_r": op = "duplex"
-        ret = self._duplex(op,data)
+        ret = self._duplex(op,data,"keytree" in cw.flags)
         
         if "input_zero" in cw.flags and receive:
             orr = 0
-            for byte in ret: orr |= ret[0]
+            for byte in ret: orr |= byte
             if orr: return self.fail("input_zero failed")
         
         # erase state to forget data
@@ -173,7 +215,7 @@ class Strobelite(object):
 
 class StrobeliteProtocol(Strobelite):
     """
-    A handler which uses STROBE lite to operate on an i/o stream.
+    A handler which uses STROBE lite to transact on an i/o stream.
     The stream must implement send and recv.
     """
     def __init__(self,io,*args,**kwargs):
@@ -182,12 +224,12 @@ class StrobeliteProtocol(Strobelite):
 
     def send(self,cw,data=None):
         """
-        Operate on some data, and send the result to the other party.
+        transact on some data, and send the result to the other party.
         """
         if cw.is_implicit():
             raise StrobeliteError("Trying to send implicit data")
             
-        frame,data = self.operate(cw,data)
+        frame,data = self.transact(cw,data)
         frame = bytearray((frame[b] for b in cw.send_bytes()))
         self.io.send(frame+data)
         return True
@@ -236,7 +278,7 @@ class StrobeliteProtocol(Strobelite):
         """
         if not cw.is_implicit():
             raise StrobeliteError("Called implicit, but control word is not implicit")
-        return self.operate(cw,data)[1]
+        return self.transact(cw,data)[1]
     
     def recv(self,cw,frame=None,**kwargs):
         """
@@ -244,9 +286,10 @@ class StrobeliteProtocol(Strobelite):
         Can take min_length,max_length or exact_length kwargs.
         """
         if frame is None: frame = self.io.recv(len(cw.send_bytes()))
+        
         length = self._check_frame(cw,frame,**kwargs)
         data = self.io.recv(length)
-        return self.operate(cw,data,receive=True)[1]
+        return self.transact(cw,data,receive=True)[1]
     
     def recv_decrypt(self,**kwargs):
         """
@@ -290,8 +333,13 @@ class StrobeliteProtocol(Strobelite):
             # TODO: a way to make this explicit maybe?
             
         if stir_pk is not None: self.implicit(SIG_PK, stir_pk)
-            
-        eph,esec = EC.keygen()
+        
+        # Deterministic sig
+        deterministic = self.copy()
+        deterministic.transact(FIXED_KEY, secret)
+        _,esec = deterministic.transact(PRNG, len(secret)*3/2)
+        eph = EC.get_pubkey(esec)
+        
         self.send(SIG_EPH,eph)
         challenge = self.implicit(SIG_CHAL,EC.challenge_bytes)
         response = EC.sig_response(secret,esec,challenge)

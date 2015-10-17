@@ -84,6 +84,9 @@ class ControlWord(namedtuple("ControlWord",("name","op","id","flags","length")))
         if len(badFlags) != 0:
             raise StrobeliteError("Bad flag(s): " + str(badFlags))
             
+        if "keytree" in flags and "forget" not in flags:
+            raise StrobeliteError("It's strongly recommended to forget after keytree ops.")
+            
         if id < 0 or id >= 1<<8:
             raise StrobeliteError("Bad id: " + str(id))
         
@@ -140,7 +143,8 @@ class ControlWord(namedtuple("ControlWord",("name","op","id","flags","length")))
         else:
             c2s = int(bool(am_client))
 
-        flagfield = c2s | int(not self.is_implicit())<<1 | ControlWord.knownops[self.op]<<2
+        forget_i = int("forget" in self.flags)
+        flagfield = c2s | int(not self.is_implicit())<<1 | ControlWord.knownops[self.op]<<2 | forget_i<<4
         theBytes = [flagfield, self.id & 0xFF, length&0xFF, length>>8]
         
         # Padding byte
@@ -254,7 +258,7 @@ ENCRYPTED_EXTENSION = ControlWord.duplex   (0x05,"ENCRYPTED_EXTENSION")
 CERTIFICATE         = ControlWord.duplex   (0x06,"CERTIFICATE")
 HEADER_PLAINTEXT    = ControlWord.plaintext(0x0D,"HEADER_PLAINTEXT")
 HEADER_CIPHERTEXT   = ControlWord.duplex   (0x0E,"HEADER_CIPHERTEXT")
-OVER                = ControlWord.absorb_r (0x0F,"OVER","no_send_len","forget",length=0) # TODO: compress, run_f?
+OVER                = ControlWord.absorb_r (0x0F,"OVER","no_send_len","forget",length=0)
 
 ################################################################################
 # Keys.
@@ -262,6 +266,8 @@ OVER                = ControlWord.absorb_r (0x0F,"OVER","no_send_len","forget",l
 # FIXED_KEY: a preshared secret or similar.
 #
 # DH_EPH: an ephemeral Diffie-Hellman public key.
+#
+# STATIC_PUB: A public key.
 #
 # DH_KEY: the shared secret.
 #
@@ -271,8 +277,9 @@ OVER                = ControlWord.absorb_r (0x0F,"OVER","no_send_len","forget",l
 # the session.
 ################################################################################
 FIXED_KEY    = ControlWord.absorb   (0x10,"FIXED_KEY")
-DH_EPH       = ControlWord.plaintext(0x11,"DH_EPH")
-DH_KEY       = ControlWord.absorb   (0x12,"DH_KEY")
+STATIC_PUB   = ControlWord.plaintext(0x11,"STATIC_PUB")
+DH_EPH       = ControlWord.plaintext(0x12,"DH_EPH")
+DH_KEY       = ControlWord.absorb   (0x13,"DH_KEY")
 PRNG         = ControlWord.squeeze  (0x18,"PRNG")
 SESSION_HASH = ControlWord.squeeze  (0x19,"SESSION_HASH")
 
@@ -313,15 +320,19 @@ SIG_RESP     = ControlWord.duplex   (0x24,"SIG_RESP")
 #
 # NONCE_EXPLICIT: An explicit packet nonce.
 # NONCE_IMPLICIT: A nonce which both sides know, eg a counter.
+#
+# LENGTH_PADDING: extra length to disguise the length of steganographic messages
+#       (actual protocol TODO).
 ################################################################################
 PAYLOAD_PLAINTEXT  = ControlWord.plaintext(0x30,"PAYLOAD_PLAINTEXT")
 PAYLOAD_CIPHERTEXT = ControlWord.duplex   (0x31,"PAYLOAD_CIPHERTEXT")
 MAC                = ControlWord.duplex_r (0x32,"MAC",
-    "no_send_len","input_zero","forget",length=12)
+    "no_send_len","input_zero","forget",length=16)
 AD_EXPLICIT        = ControlWord.plaintext(0x34,"AD_EXPLICIT")
 AD_IMPLICIT        = ControlWord.absorb   (0x35,"AD_IMPLICIT")
 NONCE_EXPLICIT     = ControlWord.plaintext(0x36,"NONCE_EXPLICIT")
 NONCE_IMPLICIT     = ControlWord.absorb   (0x37,"NONCE_IMPLICIT")
+LENGTH_PADDING     = ControlWord.duplex   (0x3F,"LENGTH_PADDING","input_zero")
 
 ################################################################################
 # Change of spec, flow control, etc.
@@ -350,3 +361,20 @@ RESPEC       = ControlWord.absorb_r (0x42,"RESPEC","implicit","forget",length=0)
 FORK         = ControlWord.absorb_r (0x43,"FORK","implicit","forget",length=0)
 INSTANCE     = ControlWord.absorb_r (0x44,"INSTANCE","implicit","forget")
 ACKNOWLEDGE  = ControlWord.plaintext(0x45,"ACKNOWLEDGE")
+
+################################################################################
+# Errors.
+#
+# ERROR_FATAL: The connection is in a working state, but cannot proceed.  This
+#     error must be MAC'd.
+#
+# CONNECTION_BROKEN: The connection is so badly broken that an ERROR_FATAL cannot
+#     be sent, because its MAC could not be calculated.  (Eg: cipher suite
+#     mismatch, or an earlier MAC failed, or similar)
+#
+# WARNING: A serious problem has occurred, but won't close the connection.  I'm
+#     not sure what you'd use this for.
+################################################################################
+ERROR_FATAL       = ControlWord.plaintext(0xF0,"FATAL_ERROR")
+CONNECTION_BROKEN = ControlWord.plaintext(0xF1,"CONNECTION_BROKEN")
+WARNING           = ControlWord.plaintext(0xF2,"WARNING")
