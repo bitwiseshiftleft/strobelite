@@ -258,4 +258,4 @@ This doesn't harm parseability, because each block still ends in the bits 2'b01 
 
 Some protocols may wish to use a stronger sponge protocol for the header, and a weaker (eg reduced-round) system for the rest of the protocol.  This is a performance hack, but it is defensible since Keccak is likely to resist attacks with many fewer rounds if it is keyed.  (See eg Keyak.)
 
-The correct way to change the cipher suite in use is to use a TAG_PRF or similar operation to initialize the new cipher.  However, a passable hack for reducing the round count is to apply a codeword with TAG_RESPEC and the new round count (**as part of the codeword**, i.e. not using the standard STROBE lite code word scheme), and then to forget self.R-4 bytes of the state as above.
+The correct way to change the cipher suite in use is to use a `PRNG` or similar operation to initialize the new cipher.  However, a passable hack for reducing the round count is to apply a codeword with `RESPEC_INFO` followed by `RESPEC`, which runs F and forgets state to prevent rollback.  After this, the new round count or rate would take effect.
