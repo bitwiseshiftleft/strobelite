@@ -21,6 +21,12 @@ It is targeted primarily at constrained devices such as security cores and Inter
 
 STROBE lite should make it easy to build hashing, encryption, and half-duplex protocols over reliable, in-order transports.  It is also possible to use the framework for asynchronous or unreliable messaging systems, but this is not as elegant.  Full-duplex systems are handled with a half-duplex channel in each direction.
 
+## Performance
+
+Simple implementations of STROBE lite on ARM Cortex-M3 processors fit in some 1.5-2.0 kiB including the sponge construction and message framing and unframing.  They use a couple hundred bytes of stack memory.  Blocking code for a simple protocol might cost another couple hundred bytes.
+
+Speed is less impressive, on the order of 250 cycles/byte.  This is probably slightly slower than AES+SHA256 on the same platform, but uses less memory and much less code.
+
 # Summary
 STROBE lite-based primitives and protocols are carried out as a sequence of transactions on a sponge state.  Each transaction has a _control word_, an _operation_ (forward or reverse duplex), and changes some amount of data by xor-ing it with the sponge state.  Transactions may be batched for slightly higher performance.
 
