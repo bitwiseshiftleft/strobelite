@@ -125,7 +125,7 @@ The recommended control words have a serialized form, and several additional fla
 The following options are not used in the Python code at all, and are included as a guideline for extensions:
 
 * A transaction can be marked `noparse` to indicate that no message can follow it in a batch.
-* * This would be used if the serialized form of a tag has been modified not to include the length of the data, eg for streaming encryption.
+  * This would be used if the serialized form of a tag has been modified not to include the length of the data, eg for streaming encryption.
 * A message can be marked `run_f` to indicate that the handler should always append the 0xC4 pad and run F().  This means that 
 * A message can be marked `implicit_dir` to indicate that even though it will not be sent, it should be considered directional when serializing the control word; that is, it is considered to originate on the client or server.  This is for extensions.
 * A message can be marked `keytree` to indicate that it is a diversifier for the DPA-resistant key tree.
@@ -133,11 +133,11 @@ The following options are not used in the Python code at all, and are included a
 The serialized forms of the recommended control words are exactly 4 bytes long. It consists of
 
 * A one-byte operation, whose bits are:
-* * Bit 0: The data will be sent.  (Other transactions, such as setting keys, are called "implicit".)
-* * Bit 1: The data will be sent by the client.
-* * Bit 2: The sponge's output will be used.
-* * Bit 3: The operation is reversed (i.e. `duplex_r` or `absorb_r`)
-* * Bit 4: After the operation, the rest of the block will be erased up to _R_-4.
+  * Bit 0: The data will be sent.  (Other transactions, such as setting keys, are called "implicit".)
+  * Bit 1: The data will be sent by the client.
+  * Bit 2: The sponge's output will be used.
+  * Bit 3: The operation is reversed (i.e. `duplex_r` or `absorb_r`)
+  * Bit 4: After the operation, the rest of the block will be erased up to _R_-4.
 * A one-byte tag, indicating what the transaction means to the protocol.
 * A two-byte little-endian length.
 
@@ -175,7 +175,7 @@ STROBE lite can be used for things as simple as signed messages.
 * Put in one or more `PAYLOAD_PLAINTEXT` blocks, possibly without the headers (or modified for streaming hashing, i.e. `noparse`).
 * Put in an `OVER` transaction.
 * Run the above signature protocol with `SIG_EPH`, `SIG_CHAL` and `SIG_RESP` transactions.
-* * For safe streaming decryption, you could interleave such signatures with blocks of the message.  If you do this, don't put an `OVER` transaction before the intermediate signatures.
+  * For safe streaming decryption, you could interleave such signatures with blocks of the message.  If you do this, don't put an `OVER` transaction before the intermediate signatures.
 
 ## Authenticated encryption
 Likewise, authenticated encryption is easy.  An authenticated encrypted message can be signed (much as above) or MAC'd:
@@ -189,7 +189,7 @@ Likewise, authenticated encryption is easy.  An authenticated encrypted message 
 * Put in one or more `PAYLOAD_CIPHERTEXT` blocks, possibly without the headers (or modified for streaming hashing, i.e. `noparse`).
 * Put in an `OVER` transaction
 * Finally, add a `MAC` block.
-* * For safe streaming decryption, you can put `MAC` blocks in between the message blocks at any interval.  If you do this, don't put the `OVER` transaction before the intermediate `MAC`s.
+  * For safe streaming decryption, you can put `MAC` blocks in between the message blocks at any interval.  If you do this, don't put the `OVER` transaction before the intermediate `MAC`s.
 
 ## Signed handshake
 A TLS-style signed handshake is also straightforward.
@@ -232,17 +232,17 @@ This design needs a rigorous security analysis before it can be used (**TODO**).
 Protocols can be made forward-compatible by the following mechanism:
 
 * All control words in the first flight have both the tag and length in the frame, unless they were present in the first version.
-* * Control words from the first version can omit the length.
+  * Control words from the first version can omit the length.
 * The first flight includes a VERSION transaction, with a major and minor version number (say, one byte each).
 * No implicit operations are performed in the first flight.
 * The first flight ends with an OVER transaction.
 * If the initiator's VERSION has a major version which is higher than what the responder supports, it responds with a lower VERSION tag, and possibly additional information.
-* * Perhaps a select few fields will have a fixed meaning across major versions; the initiator and responder might use these fields.
-* * All other fields will be ignored, except that they are hashed into the STROBE lite state as usual.
+  * Perhaps a select few fields will have a fixed meaning across major versions; the initiator and responder might use these fields.
+  * All other fields will be ignored, except that they are hashed into the STROBE lite state as usual.
 * If the initiator's VERSION has a minor version which is higher than what the responder supports, it responds with a lower VERSION tag.
-* * If this happens, then fields defined since the responder's version are ignored.
+  * If this happens, then fields defined since the responder's version are ignored.
 * If the responder has a higher version than the initiator, the responder speaks the initiator's version.
-* * If the initiator's version of the protocol is known to be broken, then the responder sends a fatal error.  The error code is authenticated if possible.
+  * If the initiator's version of the protocol is known to be broken, then the responder sends a fatal error.  The error code is authenticated if possible.
 
 # The DPA-resistant key tree
 **WARNING** This section may be covered by Rambus Cryptography Research (or other) patents.
