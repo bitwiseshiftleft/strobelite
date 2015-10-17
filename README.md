@@ -1,6 +1,9 @@
 #Version
 This is version 0.2 of the STROBE Lite document.
 
+# License
+This document is covered by the MIT license (in this folder), but the code itself is for informational purposes only.  This is because I've done some of this work at my job, and need to clear it with legal.
+
 # Disclaimer
 I am not a lawyer.  This code may be covered by patents, export restrictions, and the like.  Please consult a lawyer before deploying this code, specifications or anything based on them.  I would be especially careful in adapting TripleDH to run on STROBE lite.
 
