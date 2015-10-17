@@ -9,7 +9,7 @@ from TestIo import *
 if 0:
     """
     This is for interacting with a C version I wrote, which doesn't
-    have the same EC code linked to it so it can't intertransact there.
+    have the same EC code linked to it so it can't interoperate there.
     """
     sock = SockIo.listen(4444,"Server")
     ctx = StrobeliteProtocol(sock,"toy python",am_client=False)
