@@ -322,6 +322,7 @@ class StrobeliteProtocol(Strobelite):
         
         ret = EC.ecdh(their_pub,sec)
         if ret is None: return self.fail("ECDH failed")
+        self.implicit(DH_KEY,ret)
 
     def sign(self,EC,secret,scheme_data=None,stir_pk=None):
         """
