@@ -1,13 +1,5 @@
 #Version
-This is version 0.2 of the STROBE Lite document.
-
-# License
-This document is covered by the MIT license (in this folder), but the code itself is for informational purposes only.  This is because I've done some of this work at my job, and need to clear it with legal.
-
-# Disclaimer
-I am not a lawyer.  This code may be covered by patents, export restrictions, and the like.  Please consult a lawyer before deploying this code, specifications or anything based on them.  I would be especially careful in adapting TripleDH to run on STROBE lite.
-
-I am a cryptographer.  However, I sometimes make mistakes.  Also, while STROBE lite is designed to be relatively easy to use, it is not by any means foolproof.  Please consult another cryptographer before implementing or deploying STROBE lite.
+This is version 0.2.1 of the STROBE Lite document.
 
 # STROBE lite
 STROBE lite is an experimental symmetric cryptography framework which can be used to construct systems as simple as hash functions and symmetric encryption, up to protocol handshakes and even entire protocols.
@@ -19,20 +11,31 @@ This framework is motivated by the goal of PANAMA, RadioGatún and Keccak to bui
 
 It is targeted primarily at constrained devices such as security cores and Internet of Things (IoT) devices, where code and memory come at a premium.  It should be particularly simple to implement on 32-bit microprocessors.
 
-STROBE lite should make it easy to build hashing, encryption, and half-duplex protocols over reliable, in-order transports.  It is also possible to use the framework for asynchronous or unreliable messaging systems, but this is not as elegant.  Full-duplex systems are handled with a half-duplex channel in each direction.
+STROBE lite should make it easy to build hashing, signatures, encryption, and half-duplex protocols over reliable, in-order transports.  It is also possible to use the framework for asynchronous or unreliable messaging systems, but this is not as elegant.  Full-duplex systems are handled with a half-duplex channel in each direction.
+
+STROBE lite is designed to be extensible in several ways.  Protocols built using it are fully domain-separated from each other.  The user can add new message types, and new tags which can have different lengths from the built-in ones.
 
 ## Performance
 
 Simple implementations of STROBE lite on ARM Cortex-M3 processors fit in some 1.5-2.0 kiB including the sponge construction and message framing and unframing.  They use a couple hundred bytes of stack memory.  Blocking code for a simple protocol might cost another couple hundred bytes.
 
-Speed is less impressive, on the order of 250 cycles/byte.  This is probably slightly slower than AES+SHA256 on the same platform, but uses less memory and much less code.
+Speed is less impressive, on the order of 250 cycles/byte on Cortex-M3.  This is probably slightly slower than AES+SHA256 on the same platform, but uses less memory and much less code.
 
 # Summary
-STROBE lite-based primitives and protocols are carried out as a sequence of transactions on a sponge state.  Each transaction has a _control word_, an _operation_ (forward or reverse duplex), and changes some amount of data by xor-ing it with the sponge state.  Transactions may be batched for slightly higher performance.
+STROBE lite-based primitives and protocols are based on a cryptographic context object called a "sponge".  As the calling code sets keys and nonces, encrypts and decrypts data and so on, the state of the sponge object changes, so that it is (roughly) a combination of a stream cipher key and a hash of all the operations done with it so far.  In client-server protocols, the client and server each have a sponge object, and the state of these two objects stays synchronized as the client and server send messages to each other.  Full-duplex protocols will use two such objects: one for messages from client to server, and one for messages from server to client.
 
-This acts as a hash function, just like Keccak.  Since the operation is broken up into transactions, it is easy to hash tuples.  If one of the inputs is a key, then the construction becomes both a stream cipher and a MAC.
+Each operation (or _transaction_) on the STROBE lite state uses:
+* A user-defined _tag_ byte.  This byte is opaque to STROBE lite and is used to distinguish what kind of data the caller is sending, receiving etc.  For example, it can be used to distinguish between a nonce and associated data, or between a "hello" message and an ephemeral key.  There is a library of suggested tags for different purposes, but the application can just as easily define its own.
+* Some number of bytes of data.
+* An operation type, which is:
+  * Absorb: add in a secret key, associated data to be hashed or signed.  Does not send the message to the other party.
+  * Plaintext: absorb a message and also send it to the other party; or receive, absorb and return a message.
+  * Duplex: encrypt a message and return or send the ciphertext.
+  * Reverse duplex: decrypt a message.
+  * Reverse absorb: Erases data from the state, to provide forward secrecy and/or to reduce the size of the state object (for devices with tiny memory).
+  * Squeeze: generate and return (but do not send to the other party) pseudorandom data based on the current state.  If the protocol so far has incorporated a secret key, this acts as a pseudorandom function.  If not, it acts as a hash function.
 
-When used in a protocol, each participant shares a sponge object which is kept in the same state as the other party's sponge object.  Each party duplexes all the messages they send or receive into the sponge.  This includes a direction flag to indicate who sent the message.  Then either the message can be sent in plaintext, or the duplex construction's output can be used as ciphertext.  This makes all the operations sensitive to all the data which has been exchanged so far.  An adversary cannot gain information about the messages exchanged (other than their length, who sent them, and any headers or messages deliberately sent as plaintext) unless she can reproduce everything which has been fed into the sponge including shared secret keys.
+These transactions can be safely composed to create a protocol.  The composition is not by any means foolproof, but it should be much easier to get right than by rolling your own with AES and SHA.
 
 # Security
 STROBE lite provides approximately 128-bit provable security against classical (non-quantum) adversaries in the random permutation or random function (i.e. random oracle) model.  The probability that an attacker can differentiate it from a random oracle should be bounded by approximately (_M_+_N_)^2 / 2^250, where _M_ is the number of F-queries the legitimate users make and _N_ is the number of F-queries the adversary makes.  This should be written up formally, but the argument should be straightforward.
@@ -268,3 +271,18 @@ This doesn't harm parseability, because each block still ends in the bits 2'b01 
 Some protocols may wish to use a stronger sponge protocol for the header, and a weaker (eg reduced-round) system for the rest of the protocol.  This is a performance hack, but it is defensible since Keccak is likely to resist attacks with many fewer rounds if it is keyed.  (See eg Keyak.)
 
 The correct way to change the cipher suite in use is to use a `PRNG` or similar operation to initialize the new cipher.  However, a passable hack for reducing the round count is to apply a codeword with `RESPEC_INFO` followed by `RESPEC`, which runs F and forgets state to prevent rollback.  After this, the new round count or rate would take effect.
+
+# Changelog
+* v0.2.1:
+  * Added this changelog.
+  * Moved license and disclaimer to the end.
+  * Expanded the summary.
+  * Fixed a critical bug in the Python code: the ECDHE function didn't use the shared key.
+
+# License
+This document is covered by the MIT license (in this folder), but the code itself is for informational purposes only.  This is because I've done some of this work at my job, and need to clear it with legal.
+
+# Disclaimer
+I am not a lawyer.  This code may be covered by patents, export restrictions, and the like.  Please consult a lawyer before deploying this code, specifications or anything based on them.  I would be especially careful in adapting TripleDH to run on STROBE lite.
+
+I am a cryptographer.  However, I sometimes make mistakes.  Also, while STROBE lite is designed to be relatively easy to use, it is not by any means foolproof.  Please consult another cryptographer before implementing or deploying STROBE lite.
